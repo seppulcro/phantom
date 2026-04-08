@@ -43,9 +43,9 @@
 
  The composition is novel. The parts are not. That's a strong place to be.
 
- ---
+ **Inspired by** Laurie Kirk's ([@LaurieWired](https://github.com/LaurieWired)) video *"Your RAM Has a 60 Year Old Design Flaw. I Bypassed It."* [34] — which demonstrated that DRAM channel placement is predictable and exploitable, and that QRNG-seeded hedged reads can fix it. PHANTOM extends that insight into a full post-quantum, post-internet attestation mesh.
 
- **Feasibility.** Every component exists and ships today. NIST/CURBy quantum beacons are live production APIs.
+ --- Every component exists and ships today. NIST/CURBy quantum beacons are live production APIs.
  ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204 standards (finalized August 2024) with production C implementations in liboqs.
  The ESP32 + LoRa SX1262 combo powers tens of thousands of Meshtastic nodes globally right now.
  llama.cpp runs quantized 7B models on a Raspberry Pi 5 at 1–3 tokens/sec — slow by cloud standards, fast enough for tactical queries offline.
