@@ -43,7 +43,7 @@
 
  The composition is novel. The parts are not. That's a strong place to be.
 
- **Inspired by** Laurie Kirk's ([@LaurieWired](https://github.com/LaurieWired)) video *"Your RAM Has a 60 Year Old Design Flaw. I Bypassed It."* [34] — which demonstrated that DRAM channel placement is predictable and exploitable, and that QRNG-seeded hedged reads can fix it. PHANTOM extends that insight into a full post-quantum, post-internet attestation mesh.
+ **Inspired by** Laurie Kirk's ([@LaurieWired](https://github.com/LaurieWired)) video *"Your RAM Has a 60 Year Old Design Flaw. I Bypassed It."* [34] — which demonstrated that DRAM channel placement is predictable and exploitable, and that QRNG-seeded hedged reads can fix it. PHANTOM extends that insight into a full post-quantum, post-internet attestation mesh. In Phase 5, PHANTOM will fork Tailslayer directly, driving its CPU-level DRAM XOR offsets from a hardware quantum chip rather than a software beacon — making the Hub's LLM inference both faster and physically unpredictable.
 
  --- Every component exists and ships today. NIST/CURBy quantum beacons are live production APIs.
  ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204 standards (finalized August 2024) with production C implementations in liboqs.
