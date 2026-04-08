@@ -13,46 +13,46 @@
 
  ---
 
- **A quantum-anchored flight recorder for AI and field ops — runs over LoRa when the internet is gone, on ~$650 of commodity hardware.**
+ **A proposed design for a quantum-anchored flight recorder for AI and field ops — intended to run over LoRa without internet infrastructure, on ~$650 of commodity hardware.**
 
  PHANTOM is what you'd get if a **flight data recorder**, a **notary public**, and a **LoRa mesh** had a baby — and the notary used physics instead of a stamp.
- Every AI output, every position broadcast, every tactical order gets cryptographically signed and hash-chained to a quantum event that existed before your system booted.
- No cloud. No cell tower. No trust required. Fits in a backpack. Survives a quantum computer.
+ The design calls for every AI output, every position broadcast, and every tactical order to be cryptographically signed and hash-chained to a quantum event that existed before the system booted.
+ No cloud. No cell tower. No internet required. Fits in a backpack. Designed to survive quantum-era cryptographic attacks.
 
- | Property | Status | Standard / Mechanism |
+ **This is a design specification. None of the phases below are implemented yet.**
+
+ | Property | Target Phase | Standard / Mechanism |
  |---|---|---|
- | **Post-internet** | ✅ Phase 1+ | LoRa SX1262 + ESP-NOW — no cell towers, no cloud, no DNS |
- | **Post-quantum secure** | ✅ Phase 1+ | NIST FIPS 203 (ML-KEM-768) + FIPS 204 (ML-DSA-65) — lattice-based, Shor-resistant |
- | **Quantum-seeded entropy** | ✅ Now (beacon) / Phase 5 (on-chip) | NIST/CURBy/ANU beacons → IDQ/Quside hardware QRNG |
- | **Tamper-evident audit** | ✅ Phase 1+ | SHA3-256 hash chain + ML-DSA-65 signatures + SQLite |
- | **Inference privacy + speed** | ✅ Phase 5 | Tailslayer fork: QRNG DRAM XOR lowers p99 latency + prevents memory layout prediction |
+ | **Offline mesh transport** | Phase 1+ | LoRa SX1262 + ESP-NOW — no cell towers, no cloud, no DNS |
+ | **Post-quantum signatures** | Phase 1+ | NIST FIPS 203 (ML-KEM-768) + FIPS 204 (ML-DSA-65) — lattice-based, Shor-resistant |
+ | **Quantum-seeded entropy** | Phase 1 (beacon) / Phase 5 (on-chip) | NIST/CURBy/ANU beacons → IDQ/Quside hardware QRNG |
+ | **Tamper-evident audit** | Phase 1+ | SHA3-256 hash chain + ML-DSA-65 signatures + SQLite |
+ | **DRAM layout unpredictability** | Phase 5 (hypothesis) | Tailslayer fork: QRNG-seeded channel offsets; whether this prevents targeting or preserves p99 latency benefit is untested |
 
- > *Prove what your AI said, when it said it, and that nobody picked the answer.*
+ > *The goal: prove what your AI said, when it said it, and that nobody picked the answer.*
  > *Prove what your hardware is doing, which memory it's touching, and that nobody predicted the layout.*
  > *Prove what your operator said, when they said it, and that nobody faked the order.*
  >
- > Anyone with your public key can verify all of it — independently, offline, forever.
+ > If built as specified: anyone with your public key could verify all of it — independently, offline, forever.
 
  ---
 
  **Why now?** Three things converged in 2024–2026:
 
- 1. **AI output is increasingly unverifiable.** C2PA [9] exists for images but is cloud-anchored and PRNG-seeded — provenance breaks the moment the internet does. There is no tamper-evident, offline, quantum-anchored AI attestation system for field use. PHANTOM is the first attempt.
- 2. **Post-quantum cryptography just standardized.** NIST finalized ML-DSA-65 and ML-KEM-768 (FIPS 203/204, August 2024). Production C implementations exist in liboqs today. Almost nobody has deployed them on ESP32-class embedded hardware yet. PHANTOM does.
- 3. **The Tailslayer dual-use insight is new.** Applying QRNG-seeded DRAM channel randomization to embedded LLM inference — simultaneously hardening memory layout against side-channel prediction *and* measurably lowering p99 inference tail latency — is original to this document.
+ 1. **AI output is increasingly unverifiable.** C2PA [9] exists for images but is cloud-anchored and PRNG-seeded — provenance breaks the moment the internet does. There is no tamper-evident, offline, quantum-anchored AI attestation system for field use. PHANTOM is a proposed first attempt.
+ 2. **Post-quantum cryptography just standardized.** NIST finalized ML-DSA-65 and ML-KEM-768 (FIPS 203/204, August 2024). Production C implementations exist in liboqs today. Almost nobody has deployed them on ESP32-class embedded hardware yet. PHANTOM proposes to.
+ 3. **The Tailslayer extension is a new research question.** Tailslayer demonstrates hedged DRAM reads reduce p99 tail latency. PHANTOM proposes feeding the channel offset from a hardware QRNG to make the layout physically unpredictable — whether that preserves or improves the latency benefit is an open, untested hypothesis.
 
  The composition is novel. The parts are not. That's a strong place to be.
 
- **Inspired by** Laurie Kirk's ([@LaurieWired](https://github.com/LaurieWired)) video *"Your RAM Has a 60 Year Old Design Flaw. I Bypassed It."* [34] and her Tailslayer project — which demonstrated that DRAM channel placement is predictable and exploitable, and reduces tail latency by issuing hedged reads across multiple channels with uncorrelated refresh schedules. Her findings broke the assumption that modern hardware is trustworthy at the physical layer. If your RAM is lying to you, your OS is lying to you, your cloud provider is lying to you — and the internet as a trust anchor stops making sense. That's what inspired this network: build something that doesn't need the internet to be trustworthy. PHANTOM extends that insight into a full post-quantum, post-internet attestation mesh. In Phase 5, PHANTOM will fork Tailslayer directly, feeding its channel offset selection from a hardware quantum chip rather than software — making the Hub's LLM inference both faster and physically unpredictable.
+ **Inspired by** Laurie Kirk's ([@LaurieWired](https://github.com/LaurieWired)) video *"Your RAM Has a 60 Year Old Design Flaw. I Bypassed It."* [34] and her Tailslayer project — which demonstrated that DRAM channel placement is predictable and exploitable, and reduces tail latency by issuing hedged reads across multiple channels with uncorrelated refresh schedules. The core insight is that hardware assumptions we treat as fixed are often reverse-engineerable. That's a useful lens for thinking about trust in general: if you can't inspect or verify a layer, you're implicitly trusting it. PHANTOM's design response is to make trust explicit and verifiable at every layer — signed, hash-chained, and anchored to entropy that no party controlled. The offline mesh design is driven by operational resilience: it should work when cell towers are down, in remote terrain, or in environments where internet routing can't be trusted. In Phase 5, PHANTOM proposes forking Tailslayer to feed its channel offset selection from a hardware quantum chip rather than a fixed reverse-engineered value — making the memory layout physically unpredictable. Whether this preserves Tailslayer's p99 latency benefit is an open research question.
 
  --- Every component exists and ships today. NIST/CURBy quantum beacons are live production APIs.
  ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204 standards (finalized August 2024) with production C implementations in liboqs.
  The ESP32 + LoRa SX1262 combo powers tens of thousands of Meshtastic nodes globally right now.
  llama.cpp runs quantized 7B models on a Raspberry Pi 5 at 1–3 tokens/sec — slow by cloud standards, fast enough for tactical queries offline.
- PHANTOM (Phase 5) forks Laurie Kirk's Tailslayer [34] to run on a hardware quantum chip (IDQ/Quside), XOR-seeding DRAM channel offsets at the CPU with true quantum entropy — making the Hub's LLM inference measurably faster (lower p99 tail latency) and cryptographically unpredictable simultaneously. Tailslayer's p99 reduction on DRAM-bandwidth-bound models is empirically benchmarked.
+ Tailslayer [34] demonstrates that hedged DRAM reads across channels with uncorrelated refresh schedules measurably reduce p99 tail latency — benchmarked on AMD, Intel, and Graviton. PHANTOM Phase 5 proposes feeding the channel offset from a hardware QRNG (IDQ/Quside) to make the layout physically unpredictable. Whether QRNG-selected offsets preserve that latency benefit is an open, unbenchmarked hypothesis.
  Certificate Transparency already runs hash-chained append-only logs at internet scale.
- **Post-internet**: the LoRa + ESP-NOW mesh operates entirely without internet infrastructure — no cell towers, no cloud, no DNS — by design, not by workaround.
- **Post-quantum secure**: ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204 lattice-based algorithms selected specifically to withstand attacks from quantum computers. Shor's algorithm breaks RSA and ECDSA. It does not break these.
  The integration is novel. The parts are not.
 
  ---
@@ -68,22 +68,22 @@
  seeding event in a **post-quantum-signed, hash-chained attestation record** that
  can be independently verified by anyone with the public key.
  
- PHANTOM extends **QAIA** (Quantum-Attested Inference Architecture) — a pipeline
+ PHANTOM proposes extending **QAIA** (Quantum-Attested Inference Architecture) — a pipeline
  for constructing tamper-evident attestation chains anchored to quantum randomness
- [1, 2, 3] — into a decentralized, offline tactical mesh. The system composes
+ [1, 2, 3] — into a decentralized, offline tactical mesh. The proposed system would compose
  quantum random number generation [1, 2, 3], post-quantum digital signatures [4, 5],
  hash-chained audit logs [13], DRAM channel randomization via Tailslayer [34], and
  a tiered ESP32 WiFi/LoRa mesh to provide non-repudiation, temporal binding,
  sampling integrity, and hardware-level unpredictability in infrastructure-denied
- environments. When on-chip QRNG hardware arrives, the same QRNG-seeded Tailslayer
- channel offsets that make DRAM layout physically unpredictable also measurably reduce
- LLM inference tail latency — security and performance from the same mechanism, no
- protocol changes required.
- 
- The proof-of-concept is deliberately minimal: a ~$15–25 ESP32 and a cyberdeck built
- from commodity parts, tested on an airsoft field with zero cell coverage.
- **PHANTOM is post-internet by design** — every critical operation runs over a LoRa mesh with no internet infrastructure required —
- **and post-quantum secure by specification** — ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204
+ environments. Whether QRNG-seeded Tailslayer channel offsets preserve the hedged-read
+ latency benefit while making DRAM layout physically unpredictable is an open,
+ unbenchmarked research question that Phase 5 is designed to answer.
+
+ The intended proof-of-concept is deliberately minimal: a ~$15–25 ESP32 and a cyberdeck built
+ from commodity parts, to be validated on an airsoft field with zero cell coverage.
+ **The mesh transport is designed to operate without internet infrastructure** — every
+ critical operation runs over LoRa and ESP-Mesh with no cell towers or cloud required —
+ **and the cryptographic layer is specified to be post-quantum secure** — ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204
  lattice-based algorithms designed to withstand quantum computer attacks. No
  quantum chip required to start: the architecture uses public quantum randomness beacons
  [1, 2] over the internet today, and is designed so that when quantum chips become
@@ -219,18 +219,21 @@ contracting [33]** |
  latency. The same mechanism that enables this — deterministic, reverse-engineerable
  channel offsets on AMD, Intel, and Graviton — is what makes Rowhammer targeting
  tractable. PHANTOM proposes feeding QRNG entropy into these offsets: the channel
- layout changes every session, seeded from a quantum event no attacker could have
- predicted, with the seed pulse ID attested in the chain. The hedged-read latency
- benefit of Tailslayer is preserved; the attack surface collapses.
+ layout would change every session, seeded from a quantum event no attacker could have
+ predicted, with the seed pulse ID attested in the chain. Whether QRNG-selected offsets
+ preserve the hedged-read latency benefit, and whether they meaningfully reduce Rowhammer
+ targeting tractability, are open research questions that Phase 5 is designed to test.
 
- This dual-use property is significant for the Hub. LLM inference with llama.cpp on a
+ This dual-use property is the hypothesis driving Phase 5. LLM inference with llama.cpp on a
  Raspberry Pi 5 is DRAM-bandwidth bound during autoregressive decoding (~1 FLOP/byte
  arithmetic intensity), making it directly sensitive to DRAM refresh stalls. Those stalls
  are invisible in average latency but clearly visible as p99 spikes in time-to-first-token
  and inter-token intervals. Tailslayer's hedged reads across channels with uncorrelated
- refresh schedules suppress those stalls — meaning QRNG-seeded Tailslayer delivers both
- physically unpredictable memory layout (security) and measurably lower token generation
- tail latency (performance). Same mechanism, two benefits.
+ refresh schedules suppress those stalls on standard DRAM. Whether QRNG-seeded channel
+ offsets preserve that benefit — or whether the randomization disrupts the latency
+ advantage — is an unbenchmarked question. If it holds, the same mechanism delivers both
+ physically unpredictable memory layout (security) and lower token generation tail latency
+ (performance). That's worth testing.
  
  ### 3.5 Mesh Transport
  
