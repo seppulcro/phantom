@@ -35,6 +35,16 @@
 
  ---
 
+ **Why now?** Three things converged in 2024–2026:
+
+ 1. **AI output is increasingly unverifiable.** C2PA [9] exists for images but is cloud-anchored and PRNG-seeded — provenance breaks the moment the internet does. There is no tamper-evident, offline, quantum-anchored AI attestation system for field use. PHANTOM is the first attempt.
+ 2. **Post-quantum cryptography just standardized.** NIST finalized ML-DSA-65 and ML-KEM-768 (FIPS 203/204, August 2024). Production C implementations exist in liboqs today. Almost nobody has deployed them on ESP32-class embedded hardware yet. PHANTOM does.
+ 3. **The Tailslayer dual-use insight is new.** Applying QRNG-seeded DRAM channel randomization to embedded LLM inference — simultaneously hardening memory layout against side-channel prediction *and* measurably lowering p99 inference tail latency — is original to this document.
+
+ The composition is novel. The parts are not. That's a strong place to be.
+
+ ---
+
  **Feasibility.** Every component exists and ships today. NIST/CURBy quantum beacons are live production APIs.
  ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204 standards (finalized August 2024) with production C implementations in liboqs.
  The ESP32 + LoRa SX1262 combo powers tens of thousands of Meshtastic nodes globally right now.
