@@ -1,37 +1,39 @@
 
  # PHANTOM — Post-quantum Hash-chained Attestation Network for Tactical Offline Mesh
- 
+
  ![Palantir at home](https://files.catbox.moe/crtpxu.jpg)
- 
+
  ---
- 
+
  > — Can we get Palantir?
  >
  > — We have Palantir at home.
  >
  > **Palantir at home:** a cyberdeck and some ESP32s from AliExpress.
- 
+
  ---
- 
- > **Quantum entropy as a universal security primitive — attested, verifiable, and
- > feeding every layer of the stack that currently trusts a random number generator.**
+
+ **A quantum-anchored flight recorder for AI and field ops — runs over LoRa when the internet is gone, on ~$650 of commodity hardware.**
+
+ PHANTOM is what you'd get if a **flight data recorder**, a **notary public**, and a **LoRa mesh** had a baby — and the notary used physics instead of a stamp.
+ Every AI output, every position broadcast, every tactical order gets cryptographically signed and hash-chained to a quantum event that existed before your system booted.
+ No cloud. No cell tower. No trust required. Fits in a backpack. Survives a quantum computer.
+
+ > *Prove what your AI said, when it said it, and that nobody picked the answer.*
+ > *Prove what your hardware is doing, which memory it's touching, and that nobody predicted the layout.*
+ > *Prove what your operator said, when they said it, and that nobody faked the order.*
  >
- > Today, using public quantum randomness beacons over the internet — no quantum
- > chip required. When on-chip QRNG becomes commodity hardware, every layer
- > upgrades in place. The attestation chain works either way.
- >
- > Prove what your AI said, when it said it, and that nobody picked the answer.
- > Prove what your hardware is doing, which memory it's touching, and that nobody
- > predicted the layout.
- > Prove what your operator said, when they said it, and that nobody faked the order.
- >
- > Every proof is cryptographically signed, hash-chained, and independently
- > verifiable by anyone with the public key — no trust in the operator required.
- >
- > Think Datadog for AI audit trails — except the logs are signed with post-quantum
- > signatures, anchored to physics you can't fake, and transmitted over radio when
- > the internet is gone.
- 
+ > Anyone with your public key can verify all of it — independently, offline, forever.
+
+ ---
+
+ **Feasibility.** Every component exists and ships today. NIST/CURBy quantum beacons are live production APIs.
+ ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204 standards (finalized August 2024) with production C implementations in liboqs.
+ The ESP32 + LoRa SX1262 combo powers tens of thousands of Meshtastic nodes globally right now.
+ llama.cpp runs quantized 7B models on a Raspberry Pi 5 at 1–3 tokens/sec — slow by cloud standards, fast enough for tactical queries offline.
+ Certificate Transparency already runs hash-chained append-only logs at internet scale.
+ The integration is novel. The parts are not.
+
  ---
  
  ## Abstract
@@ -52,9 +54,12 @@
  hash-chained audit logs [13], DRAM channel randomization via Tailslayer [34], and
  a tiered ESP32 WiFi/LoRa mesh to provide non-repudiation, temporal binding,
  sampling integrity, and hardware-level unpredictability in infrastructure-denied
- environments.
+ environments. When on-chip QRNG hardware arrives, the same QRNG-seeded Tailslayer
+ channel offsets that make DRAM layout physically unpredictable also measurably reduce
+ LLM inference tail latency — security and performance from the same mechanism, no
+ protocol changes required.
  
- The proof-of-concept is deliberately minimal: a $36 ESP32 and a cyberdeck built
+ The proof-of-concept is deliberately minimal: a ~$15–25 ESP32 and a cyberdeck built
  from commodity parts, tested on an airsoft field with zero cell coverage. No
  quantum chip required — the architecture uses public quantum randomness beacons
  [1, 2] over the internet today, and is designed so that when quantum chips become
@@ -107,7 +112,7 @@ chain |
  - **Rowhammer on inference**: DeepHammer [31] demonstrated targeted DRAM bit
    flips that degrade DNN classification accuracy to near-zero. No kernel exploit,
    no quantum computer. The attack works because DRAM channel placement follows
-   predictable deterministic offsets — reverse-engineered by Livia Wired for AMD,
+   predictable deterministic offsets — reverse-engineered by Laurie Kirk (LaurieWired) for AMD,
    Intel, and Graviton in Tailslayer [34]. QRNG-seeded channel offsets remove the
    predictability that makes targeting possible.
  - **Selective re-sampling**: An operator running LLM inference can replay the same
@@ -184,7 +189,7 @@ contracting [33]** |
  
  ### 3.4 DRAM Channel Randomization (Tailslayer)
  
- Tailslayer [34] is a C++ library by Livia Wired that exploits undocumented CPU
+ Tailslayer [34] is a C++ library by Laurie Kirk (LaurieWired) that exploits undocumented CPU
  address XOR/scrambling bits to force data onto specific DRAM channels, then
  hedges reads across replicas with uncorrelated refresh schedules to reduce tail
  latency. The same mechanism that enables this — deterministic, reverse-engineerable
@@ -193,12 +198,21 @@ contracting [33]** |
  layout changes every session, seeded from a quantum event no attacker could have
  predicted, with the seed pulse ID attested in the chain. The hedged-read latency
  benefit of Tailslayer is preserved; the attack surface collapses.
+
+ This dual-use property is significant for the Hub. LLM inference with llama.cpp on a
+ Raspberry Pi 5 is DRAM-bandwidth bound during autoregressive decoding (~1 FLOP/byte
+ arithmetic intensity), making it directly sensitive to DRAM refresh stalls. Those stalls
+ are invisible in average latency but clearly visible as p99 spikes in time-to-first-token
+ and inter-token intervals. Tailslayer's hedged reads across channels with uncorrelated
+ refresh schedules suppress those stalls — meaning QRNG-seeded Tailslayer delivers both
+ physically unpredictable memory layout (security) and measurably lower token generation
+ tail latency (performance). Same mechanism, two benefits.
  
  ### 3.5 Mesh Transport
  
  PHANTOM uses a tiered mesh strategy, drawing on the LoRa mesh ecosystem [28]
  as prior art. The primary transport is a **WiFi mesh**
- formed by ESP32 nodes using **ESP-NOW** and **ESP-Mesh** (802.11s). ESP-NOW
+ formed by ESP32 nodes using **ESP-NOW** and **ESP-Mesh** (Espressif proprietary mesh protocol over 802.11 b/g/n). ESP-NOW
  provides ultra-low-latency peer-to-peer communication (~200m range) without a
  central access point. ESP-Mesh extends this into a self-healing routed network
  where each node is a relay — more players means better coverage, not worse.
@@ -266,9 +280,10 @@ Quantum Entropy Sources           Inference Engine (Cyberdeck)
  
  ### Tier 2: Edge Nodes — Open AirTags
  
- **$36 ESP32 CYD units** [30] with GPS (BN-220) and LoRa (SX1262). Each one is
- functionally an open, hackable AirTag — except it signs every transmission with
- ML-DSA-65, works fully offline, and doesn't phone home to anyone.
+ **~$15–25 ESP32 CYD units** [30] with GPS (BN-220) and LoRa (SX1262). Each one is
+ functionally an open, hackable AirTag — except every transmission it receives is
+ verified against ML-DSA-65 signatures from the Hub, works fully offline, and doesn't
+ phone home to anyone. Private keys never leave the Hub; edge nodes hold only public keys.
  
  - **Primary transport**: ESP-NOW / ESP-Mesh WiFi — nodes relay for each other.
  - **Fallback transport**: LoRa (SX1262) activates automatically on mesh loss.
@@ -343,7 +358,10 @@ duplicate `block_id` detection |
  
  - Integrate `qaia.entropy` module (NIST Beacon [1] + CURBy [2] + ANU [3] fallback).
  - Implement **SHA3-256** [15] hash-chaining for the transport layer.
- - Port **ML-DSA-65** signing and verification to ESP32 via liboqs [20].
+ - Port **ML-DSA-65** verification to ESP32 via liboqs [20]. Signing runs on the Hub only;
+  edge nodes hold public keys and verify received blocks. ML-DSA-65 secret key (4,032 bytes)
+  and signing stack pressure make signing impractical on constrained ESP32 SRAM alongside
+  WiFi, LoRa, GPS, and display drivers.
  - **Deliverable**: `qaia.py` core module and `phantom-mesh` ESP32 firmware.
  
  ### Phase 2: Tactical Visualization
@@ -353,7 +371,7 @@ duplicate `block_id` detection |
  - Integrate **GPS (BN-220)** and **LoRa (SX1262)** with the CYD hardware.
  - Render offline map tiles from SD card with PQC-verified teammate icons.
  - Display signature validity indicator per received message.
- - **Deliverable**: CYD-Tactical-Interface firmware ($36 hardware target).
+ - **Deliverable**: CYD-Tactical-Interface firmware (~$15–25 hardware target).
  
  ### Phase 3: Hub & AI Integration (The NOMAD Layer)
  
@@ -375,7 +393,7 @@ duplicate `block_id` detection |
  - **Hub**: One **cyberdeck** (Raspberry Pi 5, custom enclosure, battery-powered)
    running QAIA, Ollama, and NOMAD. Joins ESP-Mesh directly.
  - **Edge nodes**: 20× **ESP32 CYD units** — open AirTag clones with GPS, LoRa,
-   WiFi mesh, and ML-DSA-65 signing. $36 each.
+   WiFi mesh, and ML-DSA-65 signing. ~$15–25 each.
  
  #### Transport Hierarchy (automatic, no configuration)
  
@@ -394,7 +412,7 @@ duplicate `block_id` detection |
  - Real-time map sync while in WiFi mesh range
  - Graceful LoRa degradation at mesh boundary — no data loss
  - AAR reconstructable from the chain alone — no human testimony required
- - **Total cost: ~$800** *(cyberdeck ~$150 + 20× CYD @ $36)*
+ - **Total cost: ~$450–650** *(cyberdeck ~$150 + 20× CYD @ ~$15–25)*
  
  ### Phase 5: On-chip QRNG Integration
  
@@ -538,7 +556,7 @@ LovyanGFX           # CYD display rendering
  [33] Alvarez Morales, L. "Ten Thousand Qubits and a Prayer." Singular Grit (2026).
       https://singulargrit.substack.com/p/ten-thousand-qubits-and-a-prayer
  
- [34] Wired, L. "Tailslayer: Reducing tail latency in RAM reads via DRAM channel
+ [34] Kirk, L. (LaurieWired). "Tailslayer: Reducing tail latency in RAM reads via DRAM channel
       hedging." GitHub repository (2025).
       https://github.com/LaurieWired/tailslayer
  
