@@ -19,6 +19,14 @@
  Every AI output, every position broadcast, every tactical order gets cryptographically signed and hash-chained to a quantum event that existed before your system booted.
  No cloud. No cell tower. No trust required. Fits in a backpack. Survives a quantum computer.
 
+ | Property | Status | Standard / Mechanism |
+ |---|---|---|
+ | **Post-internet** | ✅ Phase 1+ | LoRa SX1262 + ESP-NOW — no cell towers, no cloud, no DNS |
+ | **Post-quantum secure** | ✅ Phase 1+ | NIST FIPS 203 (ML-KEM-768) + FIPS 204 (ML-DSA-65) — lattice-based, Shor-resistant |
+ | **Quantum-seeded entropy** | ✅ Now (beacon) / Phase 5 (on-chip) | NIST/CURBy/ANU beacons → IDQ/Quside hardware QRNG |
+ | **Tamper-evident audit** | ✅ Phase 1+ | SHA3-256 hash chain + ML-DSA-65 signatures + SQLite |
+ | **Inference privacy + speed** | ✅ Phase 5 | Tailslayer fork: QRNG DRAM XOR lowers p99 latency + prevents memory layout prediction |
+
  > *Prove what your AI said, when it said it, and that nobody picked the answer.*
  > *Prove what your hardware is doing, which memory it's touching, and that nobody predicted the layout.*
  > *Prove what your operator said, when they said it, and that nobody faked the order.*
@@ -33,6 +41,8 @@
  llama.cpp runs quantized 7B models on a Raspberry Pi 5 at 1–3 tokens/sec — slow by cloud standards, fast enough for tactical queries offline.
  PHANTOM (Phase 5) forks Laurie Kirk's Tailslayer [34] to run on a hardware quantum chip (IDQ/Quside), XOR-seeding DRAM channel offsets at the CPU with true quantum entropy — making the Hub's LLM inference measurably faster (lower p99 tail latency) and cryptographically unpredictable simultaneously. Tailslayer's p99 reduction on DRAM-bandwidth-bound models is empirically benchmarked.
  Certificate Transparency already runs hash-chained append-only logs at internet scale.
+ **Post-internet**: the LoRa + ESP-NOW mesh operates entirely without internet infrastructure — no cell towers, no cloud, no DNS — by design, not by workaround.
+ **Post-quantum secure**: ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204 lattice-based algorithms selected specifically to withstand attacks from quantum computers. Shor's algorithm breaks RSA and ECDSA. It does not break these.
  The integration is novel. The parts are not.
 
  ---
@@ -61,8 +71,11 @@
  protocol changes required.
  
  The proof-of-concept is deliberately minimal: a ~$15–25 ESP32 and a cyberdeck built
- from commodity parts, tested on an airsoft field with zero cell coverage. No
- quantum chip required — the architecture uses public quantum randomness beacons
+ from commodity parts, tested on an airsoft field with zero cell coverage.
+ **PHANTOM is post-internet by design** — every critical operation runs over a LoRa mesh with no internet infrastructure required —
+ **and post-quantum secure by specification** — ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204
+ lattice-based algorithms designed to withstand quantum computer attacks. No
+ quantum chip required to start: the architecture uses public quantum randomness beacons
  [1, 2] over the internet today, and is designed so that when quantum chips become
  commodity (embedded in NUCs, MacBooks, or microcontrollers), every layer upgrades
  in place without protocol changes.
