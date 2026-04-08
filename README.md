@@ -31,6 +31,7 @@
  ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204 standards (finalized August 2024) with production C implementations in liboqs.
  The ESP32 + LoRa SX1262 combo powers tens of thousands of Meshtastic nodes globally right now.
  llama.cpp runs quantized 7B models on a Raspberry Pi 5 at 1–3 tokens/sec — slow by cloud standards, fast enough for tactical queries offline.
+ Laurie Kirk's Tailslayer [34] is benchmarked open-source software: its QRNG-seeded hedged DRAM reads reduce p99 inference tail latency on DRAM-bandwidth-bound models — a dual-use bonus on top of the security properties.
  Certificate Transparency already runs hash-chained append-only logs at internet scale.
  The integration is novel. The parts are not.
 
