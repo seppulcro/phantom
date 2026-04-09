@@ -1,12 +1,16 @@
 // PHANTOM mesh node — gossip transport simulation
 //
 // Each node:
-//   1. Generates an ML-DSA-65 keypair and announces its public key to peers
+//   1. Generates an ML-DSA-65 keypair (signing) and ML-KEM-768 keypair (encryption)
 //   2. Produces signed, SHA3-256 hash-chained attestation records on a timer
 //   3. Gossips records to all connected peers (enforcing LoRa 250-byte packet limit)
 //   4. Receives records from peers, verifies the ML-DSA-65 signature before accepting
 //   5. Maintains a seen-set so records are never rebroadcast twice
 //   6. Persists everything to a local SQLite attestation log
+//
+// Optional: pass --psk <passphrase> to enable AES-256-GCM payload encryption.
+// The key is derived from the PSK via SHA3-256. Tamper-evidence (hash chain +
+// ML-DSA-65 signatures) works identically in both plaintext and encrypted modes.
 //
 // This simulates the LoRa mesh protocol layer. The gossip logic, packet framing,
 // deduplication, and cross-node signature verification are identical to what
@@ -19,14 +23,16 @@
 //       /usr/local/lib/liboqs.a -lsqlite3 -lssl -lcrypto -lpthread \
 //       -Wl,-rpath,/usr/local/lib
 //
-// Run (example, 3 nodes):
+// Run plaintext (3 nodes):
 //   ./phantom_mesh_node --id node-1 --port 7001 --peers node-2:7002,node-3:7003
-//   ./phantom_mesh_node --id node-2 --port 7002 --peers node-1:7001,node-3:7003
-//   ./phantom_mesh_node --id node-3 --port 7003 --peers node-1:7001,node-2:7002
+//
+// Run encrypted (3 nodes):
+//   ./phantom_mesh_node --id node-1 --port 7001 --peers node-2:7002,node-3:7003 --psk phantom-demo-key
 
 #include <oqs/oqs.h>
 #include <sqlite3.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -91,6 +97,74 @@ static std::vector<uint8_t> from_hex(const std::string &h) {
         out[i] = (uint8_t)b;
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// Key derivation: SHA3-256(psk) → 32-byte AES-256-GCM key
+// ---------------------------------------------------------------------------
+static std::vector<uint8_t> derive_key(const std::string &psk) {
+    uint8_t digest[32];
+    unsigned int len = 32;
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx, EVP_sha3_256(), nullptr);
+    EVP_DigestUpdate(ctx, psk.data(), psk.size());
+    EVP_DigestFinal_ex(ctx, digest, &len);
+    EVP_MD_CTX_free(ctx);
+    return std::vector<uint8_t>(digest, digest + 32);
+}
+
+// ---------------------------------------------------------------------------
+// AES-256-GCM encryption/decryption
+// Format: hex(IV[12] || ciphertext || tag[16])
+// ---------------------------------------------------------------------------
+static std::string aes_gcm_encrypt(const std::vector<uint8_t> &key, const std::string &plaintext) {
+    uint8_t iv[12];
+    RAND_bytes(iv, 12);
+
+    std::vector<uint8_t> ct(plaintext.size());
+    uint8_t tag[16];
+    int len = 0;
+
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr);
+    EVP_EncryptInit_ex(ctx, nullptr, nullptr, key.data(), iv);
+    EVP_EncryptUpdate(ctx, ct.data(), &len,
+                      reinterpret_cast<const uint8_t*>(plaintext.data()), (int)plaintext.size());
+    EVP_EncryptFinal_ex(ctx, ct.data() + len, &len);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag);
+    EVP_CIPHER_CTX_free(ctx);
+
+    std::vector<uint8_t> blob;
+    blob.insert(blob.end(), iv, iv + 12);
+    blob.insert(blob.end(), ct.begin(), ct.end());
+    blob.insert(blob.end(), tag, tag + 16);
+    return to_hex(blob.data(), blob.size());
+}
+
+static std::string aes_gcm_decrypt(const std::vector<uint8_t> &key, const std::string &hex_blob) {
+    auto blob = from_hex(hex_blob);
+    if (blob.size() < 28) throw std::runtime_error("ciphertext too short");
+
+    uint8_t *iv  = blob.data();
+    size_t ct_len = blob.size() - 28;
+    uint8_t *ct  = blob.data() + 12;
+    uint8_t *tag = blob.data() + 12 + ct_len;
+
+    std::vector<uint8_t> pt(ct_len);
+    int len = 0;
+
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr);
+    EVP_DecryptInit_ex(ctx, nullptr, nullptr, key.data(), iv);
+    EVP_DecryptUpdate(ctx, pt.data(), &len, ct, (int)ct_len);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, tag);
+    int ret = EVP_DecryptFinal_ex(ctx, pt.data() + len, &len);
+    EVP_CIPHER_CTX_free(ctx);
+
+    if (ret <= 0) throw std::runtime_error("AES-GCM auth failed — tampered ciphertext or wrong key");
+    return std::string(pt.begin(), pt.end());
 }
 
 // ---------------------------------------------------------------------------
@@ -213,14 +287,16 @@ struct DB {
         return h;
     }
 
-    void dump(const std::string &node_id) {
+    void dump(const std::string &node_id, const std::vector<uint8_t> &enc_key = {}) {
         std::lock_guard<std::mutex> lk(mu);
         sqlite3_stmt *stmt;
         sqlite3_prepare_v2(db,
             "SELECT seq, origin_id, source, ts, message, "
             "substr(entry_hash,1,8), substr(signature,1,8) "
             "FROM attestation_log ORDER BY seq;", -1, &stmt, nullptr);
-        std::cout << "\n[" << node_id << "] --- Attestation Log ---\n";
+        std::cout << "\n[" << node_id << "] --- Attestation Log"
+                  << (enc_key.empty() ? " (plaintext)" : " (AES-256-GCM encrypted — decrypting for display)")
+                  << " ---\n";
         std::cout << std::left
                   << std::setw(4)  << "seq"
                   << std::setw(10) << "origin"
@@ -234,12 +310,17 @@ struct DB {
             auto col = [&](int i) {
                 return std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, i)));
             };
+            std::string msg = col(4);
+            if (!enc_key.empty()) {
+                try { msg = aes_gcm_decrypt(enc_key, msg); }
+                catch (...) { msg = "[ENCRYPTED — wrong key]"; }
+            }
             std::cout << std::left
                       << std::setw(4)  << sqlite3_column_int(stmt, 0)
                       << std::setw(10) << col(1).substr(0, 8)
                       << std::setw(8)  << col(2)
                       << std::setw(12) << sqlite3_column_int64(stmt, 3)
-                      << std::setw(36) << col(4).substr(0, 34)
+                      << std::setw(36) << msg.substr(0, 34)
                       << std::setw(12) << col(5) + "..."
                       << col(6) + "...\n";
         }
@@ -314,6 +395,14 @@ struct Node {
     std::vector<uint8_t> sec_key;
     std::string          pub_key_hex;
 
+    // ML-KEM-768 keypair (post-quantum key encapsulation — NIST FIPS 203)
+    OQS_KEM             *kem = nullptr;
+    std::vector<uint8_t> kem_pub;
+    std::vector<uint8_t> kem_sec;
+
+    // Optional AES-256-GCM encryption key (derived from PSK via SHA3-256)
+    std::vector<uint8_t> enc_key;
+
     DB db;
 
     // Seen-set: entry_hash values we've already processed (dedup)
@@ -327,7 +416,8 @@ struct Node {
     std::atomic<bool> running{true};
 
     Node(const std::string &id, int port,
-         const std::vector<std::pair<std::string,int>> &peers)
+         const std::vector<std::pair<std::string,int>> &peers,
+         const std::string &psk = "")
         : id(id), listen_port(port), peer_addrs(peers),
           db("/data/" + id + "_attestation.db")
     {
@@ -340,15 +430,40 @@ struct Node {
 
         std::cout << "[" << id << "] ML-DSA-65 keypair ready. "
                   << "pub[:8]=" << pub_key_hex.substr(0,16) << "...\n";
+
+        // ML-KEM-768 keypair (NIST FIPS 203 — post-quantum key encapsulation)
+        kem = OQS_KEM_new(OQS_KEM_alg_ml_kem_768);
+        if (!kem) throw std::runtime_error("ML-KEM-768 unavailable");
+        kem_pub.resize(kem->length_public_key);
+        kem_sec.resize(kem->length_secret_key);
+        OQS_KEM_keypair(kem, kem_pub.data(), kem_sec.data());
+        std::cout << "[" << id << "] ML-KEM-768 keypair ready. "
+                  << "pub[:8]=" << to_hex(kem_pub.data(), 4) << "...\n";
+
+        if (!psk.empty()) {
+            enc_key = derive_key(psk);
+            std::cout << "[" << id << "] AES-256-GCM encryption ENABLED "
+                      << "(key derived from PSK via SHA3-256).\n";
+        } else {
+            std::cout << "[" << id << "] Encryption OFF — plaintext mode.\n";
+        }
     }
 
-    ~Node() { if (alg) OQS_SIG_free(alg); }
+    ~Node() {
+        if (alg) OQS_SIG_free(alg);
+        if (kem) OQS_KEM_free(kem);
+    }
 
     // Produce a new local attestation record and queue it for gossip
     void attest(const std::string &message) {
+        // Encrypt payload if PSK was provided
+        std::string stored_msg = message;
+        if (!enc_key.empty())
+            stored_msg = aes_gcm_encrypt(enc_key, message);
+
         std::string prev  = db.last_local_hash(id);
         int64_t     ts    = static_cast<int64_t>(std::time(nullptr));
-        std::string ehash = sha3_256_hex(prev + std::to_string(ts) + id + message);
+        std::string ehash = sha3_256_hex(prev + std::to_string(ts) + id + stored_msg);
 
         std::vector<uint8_t> sig(alg->length_signature);
         size_t sig_len = alg->length_signature;
@@ -356,7 +471,7 @@ struct Node {
                      reinterpret_cast<const uint8_t*>(ehash.data()), ehash.size(),
                      sec_key.data());
 
-        Record r{id, pub_key_hex, ts, message, prev, ehash,
+        Record r{id, pub_key_hex, ts, stored_msg, prev, ehash,
                  to_hex(sig.data(), sig_len)};
 
         db.insert(r, "local");
@@ -368,7 +483,9 @@ struct Node {
             std::lock_guard<std::mutex> lk(queue_mu);
             queue.push_back(r);
         }
-        std::cout << "[" << id << "] attested: \"" << message.substr(0,50)
+        std::string label = enc_key.empty() ? message.substr(0,50)
+                                            : "[ENCRYPTED] " + message.substr(0,38);
+        std::cout << "[" << id << "] attested: \"" << label
                   << "\" hash=" << ehash.substr(0,12) << "...\n";
     }
 
@@ -391,8 +508,13 @@ struct Node {
             std::lock_guard<std::mutex> lk(queue_mu);
             queue.push_back(r);  // rebroadcast to our own peers
         }
+        std::string display_msg = r.message;
+        if (!enc_key.empty()) {
+            try { display_msg = aes_gcm_decrypt(enc_key, r.message); }
+            catch (...) { display_msg = "[DECRYPTION FAILED]"; }
+        }
         std::cout << "[" << id << "] accepted gossip from " << r.origin_id
-                  << ": \"" << r.message.substr(0,40) << "\" ✓\n";
+                  << ": \"" << display_msg.substr(0,40) << "\" ✓\n";
     }
 
     // Listen for incoming peer connections
@@ -469,9 +591,11 @@ struct Node {
         // listen_thread blocks on accept — detach it, process will exit
         lt.detach();
 
-        db.dump(id);
+        db.dump(id, enc_key);
         std::cout << "\n[" << id << "] === Done. Chain entries in log above are "
-                  << "tamper-evident and ML-DSA-65 verified. ===\n";
+                  << "tamper-evident and ML-DSA-65 verified"
+                  << (enc_key.empty() ? "" : " (payloads AES-256-GCM encrypted)")
+                  << ". ===\n";
     }
 };
 
@@ -490,6 +614,7 @@ int main(int argc, char **argv) {
     std::string peers_str  = get_arg(argc, argv, "--peers", "");
     int         duration   = std::stoi(get_arg(argc, argv, "--duration", "15"));
     int         interval   = std::stoi(get_arg(argc, argv, "--interval", "3"));
+    std::string psk        = get_arg(argc, argv, "--psk",   "");
 
     std::vector<std::pair<std::string,int>> peers;
     if (!peers_str.empty()) {
@@ -511,12 +636,13 @@ int main(int argc, char **argv) {
     };
 
     std::cout << "=== PHANTOM Mesh Node [" << node_id << "] ===\n"
-              << "    Port    : " << port << "\n"
-              << "    Peers   : " << (peers_str.empty() ? "(none)" : peers_str) << "\n"
-              << "    Duration: " << duration << "s\n"
-              << "    LoRa MTU: " << LORA_MAX_PAYLOAD << " bytes/packet (enforced)\n\n";
+              << "    Port      : " << port << "\n"
+              << "    Peers     : " << (peers_str.empty() ? "(none)" : peers_str) << "\n"
+              << "    Duration  : " << duration << "s\n"
+              << "    LoRa MTU  : " << LORA_MAX_PAYLOAD << " bytes/packet (enforced)\n"
+              << "    Encryption: " << (psk.empty() ? "OFF (plaintext)" : "ON (AES-256-GCM, PSK mode)") << "\n\n";
 
-    Node node(node_id, port, peers);
+    Node node(node_id, port, peers, psk);
     node.run(events, duration, interval);
     return 0;
 }

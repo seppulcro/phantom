@@ -1,0 +1,67 @@
+# PHANTOM — encrypted mesh demo
+#
+# Same 3-node gossip mesh as docker-compose.yml but with AES-256-GCM payload
+# encryption enabled. All nodes share the same PSK; the key is derived via
+# SHA3-256. Tamper-evidence (ML-DSA-65 signatures + SHA3-256 hash chain) works
+# identically — the hash chain is over the ciphertext, so you can verify
+# tamper-evidence without decrypting.
+#
+# Usage:
+#   docker compose -f docker-compose.encrypted.yml up --build
+#
+# Compare SQLite output with the plaintext run:
+#   sqlite3 output/node-1-enc/node-1_attestation.db "SELECT message FROM attestation_log LIMIT 4;"
+#   # → hex ciphertext blobs
+#
+#   sqlite3 output/node-1/node-1_attestation.db "SELECT message FROM attestation_log LIMIT 4;"
+#   # → plaintext strings
+
+services:
+  node-1:
+    build: ./node
+    command: >
+      ./phantom_mesh_node
+      --id node-1
+      --port 7001
+      --peers node-2:7002,node-3:7003
+      --duration 20
+      --interval 4
+      --psk phantom-demo-key
+    volumes:
+      - ./output/node-1-enc:/data
+    networks:
+      - phantom-mesh
+
+  node-2:
+    build: ./node
+    command: >
+      ./phantom_mesh_node
+      --id node-2
+      --port 7002
+      --peers node-1:7001,node-3:7003
+      --duration 20
+      --interval 4
+      --psk phantom-demo-key
+    volumes:
+      - ./output/node-2-enc:/data
+    networks:
+      - phantom-mesh
+
+  node-3:
+    build: ./node
+    command: >
+      ./phantom_mesh_node
+      --id node-3
+      --port 7003
+      --peers node-1:7001,node-2:7002
+      --duration 20
+      --interval 4
+      --psk phantom-demo-key
+    volumes:
+      - ./output/node-3-enc:/data
+    networks:
+      - phantom-mesh
+
+networks:
+  phantom-mesh:
+    driver: bridge
