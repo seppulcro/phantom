@@ -27,6 +27,8 @@
  | Property | Status | Standard / Mechanism |
  |---|---|---|
  | **Post-quantum signatures** | ✅ Working | NIST FIPS 204 (ML-DSA-65) — lattice-based, Shor-resistant |
+ | **Post-quantum key encapsulation** | ✅ Working | NIST FIPS 203 (ML-KEM-768) — keypair generated per node at startup |
+ | **Payload encryption** | ✅ Working | AES-256-GCM, key derived from PSK via SHA3-256 (`--psk` flag) |
  | **Tamper-evident audit chain** | ✅ Working | SHA3-256 hash chain + ML-DSA-65 signatures + SQLite |
  | **Reproducible build** | ✅ Working | `docker compose up --build` — 3 isolated nodes, all chains verified |
  | **DRAM layout unpredictability** | 🔬 Research | Tailslayer fork: entropy-seeded channel offsets; latency impact unbenchmarked |
@@ -46,12 +48,19 @@
  ```bash
  git clone https://github.com/seppulcro/phantom
  cd phantom
+
+ # Plaintext mode — tamper-evident, readable messages in SQLite
  docker compose up --build
+
+ # Encrypted mode — AES-256-GCM payloads, tamper-evidence still works
+ docker compose -f docker-compose.encrypted.yml up --build
  ```
 
- That's it. Docker builds liboqs (ML-DSA-65/ML-KEM-768) from source inside the container, compiles `phantom_node`, and runs three independent nodes — each producing a verified post-quantum attestation chain written to `./output/<node>/phantom_attestation.db`.
+ That's it. Docker builds liboqs (ML-DSA-65/ML-KEM-768) from source inside the container, compiles `phantom_mesh_node`, and runs three independent nodes — each producing a verified post-quantum attestation chain written to `./output/<node>/phantom_attestation.db`.
 
- No hardware required. No cloud. No pre-shared keys. If you have a hardware QRNG at `/dev/qrng0`, the entropy source upgrades automatically.
+ In encrypted mode, the SQLite log stores ciphertext blobs. The hash chain and ML-DSA-65 signatures are over the ciphertext — tamper-evidence holds whether or not you have the key.
+
+ No hardware required. No cloud. If you have a hardware QRNG at `/dev/qrng0`, the entropy source upgrades automatically.
 
 
  ---
