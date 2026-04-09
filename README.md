@@ -13,21 +13,22 @@
 
  ---
 
- **A proposed design for a quantum-anchored flight recorder for AI and field ops — intended to run over LoRa without internet infrastructure, on ~$650 of commodity hardware.**
+ **A design and working cryptographic core for a quantum-anchored flight recorder for AI and field ops — intended to run over LoRa without internet infrastructure, on ~$650 of commodity hardware.**
 
  PHANTOM is what you'd get if a **flight data recorder**, a **notary public**, and a **LoRa mesh** had a baby — and the notary used physics instead of a stamp.
  The design calls for every AI output, every position broadcast, and every tactical order to be cryptographically signed and hash-chained to a quantum event that existed before the system booted.
  No cloud. No cell tower. No internet required. Fits in a backpack. Designed to survive quantum-era cryptographic attacks.
 
- **This is a design specification. None of the phases below are implemented yet.**
+ **The cryptographic core is implemented and validated.** The attestation layer (ML-DSA-65 signatures + SHA3-256 hash chain + SQLite) builds from source and runs. The mesh transport (LoRa/ESP-NOW) and QRNG hardware integration are next.
 
- | Property | Target Phase | Standard / Mechanism |
+ | Property | Status | Standard / Mechanism |
  |---|---|---|
- | **Offline mesh transport** | Phase 1+ | LoRa SX1262 + ESP-NOW — no cell towers, no cloud, no DNS |
- | **Post-quantum signatures** | Phase 1+ | NIST FIPS 203 (ML-KEM-768) + FIPS 204 (ML-DSA-65) — lattice-based, Shor-resistant |
- | **Quantum-seeded entropy** | Phase 1 (beacon) / Phase 5 (on-chip) | NIST/CURBy/ANU beacons → IDQ/Quside hardware QRNG |
- | **Tamper-evident audit** | Phase 1+ | SHA3-256 hash chain + ML-DSA-65 signatures + SQLite |
- | **DRAM layout unpredictability** | Phase 5 (hypothesis) | Tailslayer fork: QRNG-seeded channel offsets; whether this prevents targeting or preserves p99 latency benefit is untested |
+ | **Post-quantum signatures** | ✅ Working | NIST FIPS 204 (ML-DSA-65) — lattice-based, Shor-resistant |
+ | **Tamper-evident audit chain** | ✅ Working | SHA3-256 hash chain + ML-DSA-65 signatures + SQLite |
+ | **Reproducible build** | ✅ Working | `docker compose up --build` — 3 isolated nodes, all chains verified |
+ | **DRAM layout unpredictability** | 🔬 Research | Tailslayer fork: entropy-seeded channel offsets; latency impact unbenchmarked |
+ | **Quantum-seeded entropy** | 🔌 Ready | Code path exists; requires IDQ/Quside hardware at `/dev/qrng0` |
+ | **Offline mesh transport** | 🔧 Planned | LoRa SX1262 + ESP-NOW — no cell towers, no cloud, no DNS |
 
  > *The goal: prove what your AI said, when it said it, and that nobody picked the answer.*
  > *Prove what your hardware is doing, which memory it's touching, and that nobody predicted the layout.*
@@ -56,7 +57,21 @@
  The integration is novel. The parts are not.
 
  ---
- 
+
+ ## Quickstart
+
+ ```bash
+ git clone https://github.com/seppulcro/phantom
+ cd phantom
+ docker compose up --build
+ ```
+
+ That's it. Docker builds liboqs (ML-DSA-65/ML-KEM-768) from source inside the container, compiles `phantom_node`, and runs three independent nodes — each producing a verified post-quantum attestation chain written to `./output/<node>/phantom_attestation.db`.
+
+ No hardware required. No cloud. No pre-shared keys. If you have a hardware QRNG at `/dev/qrng0`, the entropy source upgrades automatically.
+
+ ---
+
  ## Abstract
  
  Modern computing stacks have a systemic trust problem: every layer that depends on
@@ -79,8 +94,7 @@
  latency benefit while making DRAM layout physically unpredictable is an open,
  unbenchmarked research question that Phase 5 is designed to answer.
 
- The intended proof-of-concept is deliberately minimal: a ~$15–25 ESP32 and a cyberdeck built
- from commodity parts, to be validated on an airsoft field with zero cell coverage.
+ The proof-of-concept is deliberately minimal and already works: `docker compose up --build` spins up three independent PHANTOM nodes, each generating an ML-DSA-65 keypair, signing a SHA3-256 hash chain, and writing a verified attestation log to a local SQLite database — with no cloud, no internet, and no pre-shared keys. The intended field deployment is a cyberdeck and some ESP32s from AliExpress, validated on an airsoft field with zero cell coverage. The cryptographic guarantees are the same whether you're testing on a laptop or running over LoRa in a dead zone.
  **The mesh transport is designed to operate without internet infrastructure** — every
  critical operation runs over LoRa and ESP-Mesh with no cell towers or cloud required —
  **and the cryptographic layer is specified to be post-quantum secure** — ML-DSA-65 and ML-KEM-768 are NIST FIPS 203/204
