@@ -1,18 +1,26 @@
-# PHANTOM — docker compose validation
+# PHANTOM — docker compose mesh simulation
 #
-# Spins up 3 independent nodes, each:
-#   - built from source (liboqs + phantom_node)
-#   - running the PQ attestation chain
-#   - writing its SQLite log to ./output/<node>/
+# Spins up 3 PHANTOM mesh nodes on a shared Docker network.
+# Each node:
+#   - Generates an ML-DSA-65 keypair (NIST FIPS 204) independently
+#   - Produces signed, SHA3-256 hash-chained attestation records on a timer
+#   - Gossips records to peers over TCP, enforcing the LoRa 250-byte packet limit
+#   - Verifies every incoming record's ML-DSA-65 signature before accepting
+#   - Persists a full attestation log (own + gossip) to ./output/<node>/
 #
 # Usage:
 #   docker compose up --build
 #
-# After it completes, ./output/ contains the SQLite attestation databases
-# from all three nodes — inspect with: sqlite3 output/node-1/phantom_attestation.db
+# After it completes, inspect any node's log:
+#   sqlite3 output/node-1/node-1_attestation.db \
+#     "SELECT origin_id, source, message, substr(entry_hash,1,8) FROM attestation_log;"
 #
-# This proves the full PHANTOM cryptographic stack (ML-DSA-65 + SHA3-256 + SQLite)
-# is buildable and functional in an isolated environment by anyone with Docker.
+# What this proves:
+#   - The full PHANTOM cryptographic stack (liboqs + OpenSSL + SQLite) builds from source
+#   - Three independent nodes gossip and cross-verify each other's PQ signatures
+#   - Each node's log contains records from all three nodes, all verified
+#   - The LoRa 250-byte packet constraint is enforced at the transport layer
+#   - docker compose up --build is the only dependency
 
 services:
 
@@ -21,30 +29,62 @@ services:
       context: ./node
       dockerfile: Dockerfile
     command:
-      - "PHANTOM node-1 boot — post-quantum stack initialized"
-      - "node-1: AI inference result signed and attested"
-      - "node-1: mesh beacon transmitted"
+      - "--id"   
+      - "node-1"
+      - "--port"
+      - "7001"
+      - "--peers"
+      - "node-2:7002,node-3:7003"
+      - "--duration"
+      - "20"
+      - "--interval"
+      - "4"
     volumes:
       - ./output/node-1:/data
+    networks:
+      - phantom-mesh
 
   node-2:
     build:
       context: ./node
       dockerfile: Dockerfile
     command:
-      - "PHANTOM node-2 boot — post-quantum stack initialized"
-      - "node-2: operator order received and signed"
-      - "node-2: mesh beacon acknowledged"
+      - "--id"
+      - "node-2"
+      - "--port"
+      - "7002"
+      - "--peers"
+      - "node-1:7001,node-3:7003"
+      - "--duration"
+      - "20"
+      - "--interval"
+      - "4"
     volumes:
       - ./output/node-2:/data
+    networks:
+      - phantom-mesh
 
   node-3:
     build:
       context: ./node
       dockerfile: Dockerfile
     command:
-      - "PHANTOM node-3 boot — post-quantum stack initialized"
-      - "node-3: position broadcast attested"
-      - "node-3: DRAM entropy-seeded channel offset logged"
+      - "--id"
+      - "node-3"
+      - "--port"
+      - "7003"
+      - "--peers"
+      - "node-1:7001,node-2:7002"
+      - "--duration"
+      - "20"
+      - "--interval"
+      - "4"
     volumes:
       - ./output/node-3:/data
+    networks:
+      - phantom-mesh
+
+networks:
+  phantom-mesh:
+    driver: bridge
+
