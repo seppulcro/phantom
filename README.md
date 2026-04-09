@@ -13,11 +13,14 @@
 
  ---
 
- **A design and working cryptographic core for a quantum-anchored flight recorder for AI and field ops — intended to run over LoRa without internet infrastructure, on ~$650 of commodity hardware.**
+ **A working, post-quantum, tamper-evident mesh network for environments where the internet isn't available, isn't trusted, or doesn't exist.**
 
  PHANTOM is what you'd get if a **flight data recorder**, a **notary public**, and a **LoRa mesh** had a baby — and the notary used physics instead of a stamp.
- The design calls for every AI output, every position broadcast, and every tactical order to be cryptographically signed and hash-chained to a quantum event that existed before the system booted.
- No cloud. No cell tower. No internet required. Fits in a backpack. Designed to survive quantum-era cryptographic attacks.
+ Every AI output, every position broadcast, every operator order is cryptographically signed with a post-quantum algorithm and hash-chained — so anyone with your public key can verify what was said, when, and that nobody altered the record. Offline. Forever.
+
+ It isn't a replacement for the internet. It's what secure communication looks like **when the internet isn't there** — and what the internet's foundation should have looked like from the start: tamper-evident by design, no central authority, post-quantum from day one. In normal operations you use the internet. When towers go down, infrastructure fails, or you need provable tamper-evidence the internet can't provide — that's PHANTOM's domain.
+
+ No cloud. No cell tower. No internet required. Fits in a backpack. ~$650 of commodity hardware.
 
  **The cryptographic core is implemented and validated.** The attestation layer (ML-DSA-65 signatures + SHA3-256 hash chain + SQLite) builds from source and runs. The mesh transport (LoRa/ESP-NOW) and QRNG hardware integration are next.
 
